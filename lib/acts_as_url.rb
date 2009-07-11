@@ -25,6 +25,9 @@ module ActsAsUrl
         
         # Define writer method
         define_method((attribute.to_s + '=').to_sym) do |url|
+          # Don't convert an empty string to a url
+          write_attribute(attribute, url) and return if url.blank?
+          
           # Get provided protocol if any
           provided_protocol = protocols[attribute].reject { |p| !url.starts_with?(p) }.first
           protocol_included = !provided_protocol.nil?
