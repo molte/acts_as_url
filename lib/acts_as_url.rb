@@ -4,40 +4,31 @@ module ActsAsUrl
     base.send(:extend, ClassMethods)
   end
   
+  mattr_accessor :default_protocols
+  self.default_protocols = %w( http https )
+  
   module ClassMethods
-    DEFAULT_ALLOWED_PROTOCOLS = %w( http https )
-    
-    URL_SUBDOMAINS_PATTERN = '([-\w]+\.)+'
+    URL_SUBDOMAINS_PATTERN = '(?:[-\w]+\.)+'
     URL_TLD_PATTERN        = '[a-z]{2,6}'
-    URL_PORT_PATTERN       = '(:\d{1,5})?'
+    URL_PORT_PATTERN       = '(?::\d{1,5})?'
+    
+    attr_accessor :protocols
     
     def acts_as_url(*attributes)
-      protocols = attributes.last.is_a?(Hash) ? attributes.pop : {}
+      self.protocols = attributes.extract_options!
       attributes += protocols.keys
       
       attributes.each do |attribute|
         # Set default protocols
-        protocols[attribute] ||= DEFAULT_ALLOWED_PROTOCOLS
-        # Append "://" to each protocol
-        protocols[attribute] = protocols[attribute].to_a.collect { |p| p + '://' }
+        self.protocols[attribute] ||= ActsAsUrl.default_protocols
         
-        add_url_validation(attribute, protocols[attribute])
+        add_url_validation(attribute, self.protocols[attribute].to_a)
         
-        # Define writer method
-        define_method((attribute.to_s + '=').to_sym) do |url|
-          # Don't convert an empty string to a url
-          write_attribute(attribute, url) and return if url.blank?
-          
-          # Get provided protocol if any
-          provided_protocol = protocols[attribute].reject { |p| !url.starts_with?(p) }.first
-          protocol_included = !provided_protocol.nil?
-          
-          # Make sure the host name is appended by a slash
-          url += '/' unless (protocol_included ? url[provided_protocol.length, url.length - provided_protocol.length] : url).include?('/')
-          # Add protocol to url if missing
-          url = protocols[attribute].first + url unless protocol_included
-          
-          write_attribute(attribute, url)
+        # Define before save callback
+        callback_name = "convert_#{attribute}_to_url".to_sym
+        before_save callback_name
+        define_method callback_name do
+          write_attr_as_url(attribute)
         end
         
         # Define reader method
@@ -52,11 +43,43 @@ module ActsAsUrl
           url
         end
       end
+      
+      send(:include, InstanceMethods)
     end
     
     private
     def add_url_validation(attribute, protocols)
-      validates_format_of(attribute, :with => /\A(#{protocols.join('|')})#{URL_SUBDOMAINS_PATTERN + URL_TLD_PATTERN + URL_PORT_PATTERN}\/\S*\z/, :allow_blank => true)
+      validates_format_of(attribute, :with => /\A(?:(?:#{protocols.join('|')}):\/\/)?#{URL_SUBDOMAINS_PATTERN + URL_TLD_PATTERN + URL_PORT_PATTERN}(?:\/\S*)?\z/, :allow_blank => true)
+    end
+    
+  end
+  
+  module InstanceMethods
+    
+    private
+    def write_attr_as_url(attribute)
+      url = self.send(attribute)
+      self.send((attribute.to_s + '=').to_sym, convert_to_url(attribute, url))
+    end
+    
+    def convert_to_url(attribute, url)
+      # Don't try to convert an empty string to a url
+      return url if url.blank?
+      
+      # Get provided protocol if any
+      provided_protocol = self.class.protocols[attribute].to_a.reject { |p| !url.starts_with?(p + '://') }.first
+      protocol_included = !provided_protocol.nil?
+      
+      # Make sure the host name is appended by a slash
+      url += '/' unless (protocol_included ? url_without_protocol(url, provided_protocol + '://') : url).include?('/')
+      # Add protocol to url if missing
+      url = self.class.protocols[attribute].to_a.first + '://' + url unless protocol_included
+      
+      return url
+    end
+    
+    def url_without_protocol(url, protocol)
+      url[protocol.length, url.length - protocol.length]
     end
     
   end

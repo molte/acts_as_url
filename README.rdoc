@@ -14,19 +14,32 @@ A common usecase would be in blog comments where you want the user to be able to
   >> comment = Comment.new
   => #<Comment:0x245fed8 ... >
   
-  # The protocol is added before the comment is saved to the database.
-  >> comment.website = 'example.com/directory/file.html'
-  => "example.com/directory/file.html"
+The protocol is added just before the comment is saved to the database (as a before_save callback).
+  >> comment.website = 'example.com/path/to/file.html'
+  => "example.com/path/to/file.html"
+  
+  >> comment.save
+  => true
   
   >> comment.website
-  => "http://example.com/directory/file.html"
+  => "http://example.com/path/to/file.html"
   
-  # The protocol is already given and is therefore not added, however a trailing slash is appended.
+In this case protocol is already given and is therefore not added, however a trailing slash is appended.
   >> comment.website = 'https://example.org'
   => "https://example.org"
   
+  >> comment.save
+  => true
+  
   >> comment.website
   => "https://example.org/"
+  
+The url will be validated before it is saved to the database.
+  >> comment.website = 'not a url'
+  => "not a url"
+  
+  >> comment.invalid?
+  => true
   
 == Options
 
