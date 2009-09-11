@@ -8,9 +8,10 @@ module ActsAsUrl
   self.default_protocols = %w( http https )
   
   module ClassMethods
-    URL_SUBDOMAINS_PATTERN = '(?:[-\w]+\.)+'
-    URL_TLD_PATTERN        = '[a-z]{2,6}'
+    URL_SUBDOMAINS_PATTERN = '(?:[a-z0-9-]+\.)+'
+    URL_TLD_PATTERN        = '(?:[a-z]{2}|com|org|net|edu|gov|mil|biz|info|mobi|name|aero|jobs|museum)'
     URL_PORT_PATTERN       = '(?::\d{1,5})?'
+    EMAIL_NAME_PATTERN     = '[\w.%+-]+'
     
     attr_accessor :protocols
     
@@ -22,7 +23,7 @@ module ActsAsUrl
         # Set default protocols
         self.protocols[attribute] ||= ActsAsUrl.default_protocols
         
-        add_url_validation(attribute, self.protocols[attribute].to_a)
+        validates_url(attribute, :protocols => self.protocols[attribute].to_a)
         
         # Define before save callback
         callback_name = "convert_#{attribute}_to_url".to_sym
@@ -47,9 +48,22 @@ module ActsAsUrl
       send(:include, InstanceMethods)
     end
     
-    private
-    def add_url_validation(attribute, protocols)
-      validates_format_of(attribute, :with => /\A(?:(?:#{protocols.join('|')}):\/\/)?#{URL_SUBDOMAINS_PATTERN + URL_TLD_PATTERN + URL_PORT_PATTERN}(?:\/\S*)?\z/, :allow_blank => true)
+    protected
+    def validates_url(*attr_names)
+      options          = attr_names.extract_options!
+      protocol_pattern = "(?:(?:#{ (options.delete(:protocols) || ActsAsUrl.default_protocols).map { |p| ActsAsUrl.escape_regex p } * '|' }):\/\/)?"
+      port_pattern     = options[:ports] ? "(?: :#{ options.delete(:ports).map { |p| ActsAsUrl.escape_regex p } * '|' } )" : URL_PORT_PATTERN
+      
+      validates_format_of(*attr_names << { :allow_blank => true,
+        :with => /\A #{protocol_pattern + URL_SUBDOMAINS_PATTERN + URL_TLD_PATTERN + port_pattern} (?:\/\S*)? \z/ix }.merge(options))
+    end
+    
+    def validates_email(*attr_names)
+      options = attr_names.extract_options!
+      
+      validates_format_of(*attr_names << { :allow_blank => true,
+        # Regex inspired by rick olson's restful-authentication plugin
+        :with => /\A #{EMAIL_NAME_PATTERN} @ #{URL_SUBDOMAINS_PATTERN + URL_TLD_PATTERN} \z/ix }.merge(options))
     end
     
   end
@@ -82,6 +96,11 @@ module ActsAsUrl
       url[protocol.length, url.length - protocol.length]
     end
     
+  end
+  
+  # Escapes all regular expression tokens in a given string.
+  def self.escape_regex(regex_str)
+    regex_str.to_s.gsub(/[[\\^$.|?*+()\/]/) { |token_char| '\\' + token_char[0] }
   end
   
 end
